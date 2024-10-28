@@ -36,7 +36,9 @@ public class VolumeRenderedObject : MonoBehaviour
     {
         if (volumeContainerObject == null)
         {
-            Debug.LogWarning("VolumeContainer missing. This is expected if the object was saved with an old version of the plugin. Please re-save it.");
+            Debug.LogWarning(
+                "VolumeContainer missing. This is expected if the object was saved with an old version of the plugin. Please re-save it."
+            );
             Transform trans = transform.Find("VolumeContainer");
             if (trans == null)
                 trans = GetComponentInChildren<MeshRenderer>(true)?.transform;
@@ -47,6 +49,18 @@ public class VolumeRenderedObject : MonoBehaviour
 
     public void UpdateMaterialProperties()
     {
+        if (meshRenderer == null)
+        {
+            Debug.LogError("MeshRenderer is not assigned.");
+            return;
+        }
+
+        if (dataset == null)
+        {
+            Debug.LogError("VolumeDataset is not assigned.");
+            return;
+        }
+
         if (meshRenderer.sharedMaterial == null)
         {
             meshRenderer.sharedMaterial = new Material(Shader.Find("Custom/SimplifiedMIPShader"));
@@ -55,7 +69,10 @@ public class VolumeRenderedObject : MonoBehaviour
 
         meshRenderer.sharedMaterial.SetFloat("_MinVal", 0f);
         meshRenderer.sharedMaterial.SetFloat("_MaxVal", 1f);
-        meshRenderer.sharedMaterial.SetVector("_TextureSize", new Vector3(dataset.dimX, dataset.dimY, dataset.dimZ));
+        meshRenderer.sharedMaterial.SetVector(
+            "_TextureSize",
+            new Vector3(dataset.dimX, dataset.dimY, dataset.dimZ)
+        );
 
         if (rayTerminationEnabled)
             meshRenderer.sharedMaterial.EnableKeyword("RAY_TERMINATE_ON");

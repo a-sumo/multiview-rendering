@@ -1,0 +1,13 @@
+#pragma kernel CSMain
+
+RWBuffer<float4> _VolumeBuffer : register(u0);
+uint _BufferSize;
+
+[numthreads(256, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _BufferSize)
+    {
+        _VolumeBuffer[id.x] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+}

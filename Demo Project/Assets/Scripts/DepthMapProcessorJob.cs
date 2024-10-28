@@ -6,7 +6,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 
-public class DepthMapProcessorGPU : MonoBehaviour
+public class DepthMapProcessorJob : MonoBehaviour
 {
     public string imageFolder = "Assets/Resources/DepthMaps/";
     private const int TEXTURE_SIZE = 128;
@@ -20,10 +20,7 @@ public class DepthMapProcessorGPU : MonoBehaviour
     private VolumeDataset dataset;
     public VolumeRenderedObject volumeRenderer;
     private Texture2D[][] loadedTextures;
-    private RenderTexture[] viewRenderTextures;
-    private RenderTexture finalRenderTexture;
-    private ComputeShader processComputeShader;
-    private Material combineMaterial;
+    private NativeArray<Color> volumeData;
     private float nextUpdateTime;
 
     struct VoxelData
@@ -38,17 +35,16 @@ public class DepthMapProcessorGPU : MonoBehaviour
     {
         LoadFrameFiles();
         LoadAllTextures();
-        InitializeRenderTextures();
         CreateInitialVolumeTexture();
 
+        // Check if volumeRenderer is assigned in the Inspector
         if (volumeRenderer == null)
         {
-            Debug.LogError(
-                "VolumeRenderedObject is not assigned in the Inspector. Please assign it."
-            );
+            Debug.LogError("VolumeRenderedObject is not assigned in the Inspector. Please assign it.");
             return;
         }
 
+        // Create and assign dataset
         dataset = CreateVolumeDataset(
             volumeTexture.width,
             volumeTexture.height,
@@ -62,6 +58,7 @@ public class DepthMapProcessorGPU : MonoBehaviour
 
         volumeRenderer.dataset = dataset;
 
+        // Update texture
         UpdateVolumeTexture();
 
         nextUpdateTime = Time.time;
@@ -145,20 +142,6 @@ public class DepthMapProcessorGPU : MonoBehaviour
                 }
             }
         }
-    }
-
-    private void InitializeRenderTextures()
-    {
-        viewRenderTextures = new RenderTexture[6];
-        for (int i = 0; i < 6; i++)
-        {
-            viewRenderTextures[i] = new RenderTexture(TEXTURE_SIZE, TEXTURE_SIZE, 0, RenderTextureFormat.ARGBFloat);
-        }
-
-        finalRenderTexture = new RenderTexture(TEXTURE_SIZE, TEXTURE_SIZE, 0, RenderTextureFormat.ARGBFloat);
-
-        processComputeShader = Resources.Load<ComputeShader>("ProcessViewsComputeShader");
-        combineMaterial = new Material(Shader.Find("Custom/CombineViews"));
     }
 
     public void CreateInitialVolumeTexture()

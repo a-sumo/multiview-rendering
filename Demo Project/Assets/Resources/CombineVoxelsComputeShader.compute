@@ -1,0 +1,16 @@
+#pragma kernel CSMain
+
+RWBuffer<float4> _VolumeBuffer : register(u0);
+uint _BufferWidth;
+uint _BufferHeight;
+
+[numthreads(8, 8, 8)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    // Calculate 1D index
+    uint index = id.x + id.y * _BufferWidth + id.z * _BufferWidth * _BufferHeight;
+    
+    float4 voxelColor = _VolumeBuffer[index];
+    
+    _VolumeBuffer[index] = voxelColor;
+}
