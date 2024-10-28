@@ -1,0 +1,78 @@
+#pragma kernel CSMain
+
+RWStructuredBuffer<float4> ResultBuffer : register(u0);
+Texture2D<float4> _InputTexture;
+SamplerState sampler_InputTexture;
+
+cbuffer PerObject : register(b0)
+{
+    uint _Size;
+    uint _ViewIndex;
+};
+
+[numthreads(8,8,8)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < _Size && id.y < _Size && id.z < _Size)
+    {
+        // Calculate the voxel position based on the dispatch thread ID
+        uint3 voxelPos = id;
+        
+        float3 pos = float3(voxelPos) / _Size;
+        
+        float2 uv;
+        switch (_ViewIndex)
+        {
+            case 0: // NX
+                uv = float2(pos.z, pos.y);
+                break;
+            case 2: // NZ
+                uv = float2(pos.x, pos.y);
+                break;
+            case 1: // NY
+                uv = float2(pos.z, 1 - pos.x);
+                break;
+            case 3: // PX
+                uv = float2(1 - pos.z, 1 - pos.y);
+                break;
+            case 5: // PZ
+                uv = float2(1 - pos.x, 1 - pos.y);
+                break;
+            case 4: // PY
+                uv = float2(1 - pos.z, pos.x);
+                break;
+            default:
+                return;
+        }
+
+        float4 pixelColor = _InputTexture.SampleLevel(sampler_InputTexture, uv, 0);
+        
+        float depth = 1.0 - pixelColor.a;
+        int x = depth * (_Size - 1.0);
+
+        float index = 0;
+        switch (_ViewIndex)
+        {
+            case 0: // NX
+                index = (_Size - 1 - x) + voxelPos.y * _Size + voxelPos.z * _Size * _Size;
+                break;
+            case 1: // NZ
+                index = voxelPos.x + voxelPos.y * _Size + (_Size - 1 - x) * _Size * _Size;
+                break;
+            case 2: // NY
+                index = voxelPos.x + (_Size - 1 - x) * _Size + voxelPos.z * _Size * _Size;
+                break;
+            case 3: // PX
+                index = x + (_Size - voxelPos.y) * _Size + voxelPos.z * _Size * _Size;
+                break;
+            case 4: // PZ
+                index = voxelPos.x + (_Size - 1 - voxelPos.y) * _Size + x * _Size * _Size;
+                break;
+            case 5: // PY
+                index = voxelPos.x + x * _Size + voxelPos.z * _Size * _Size;
+                break;
+        }
+
+        ResultBuffer[index] = float4(pixelColor.rgb, 1.0);
+    }
+}

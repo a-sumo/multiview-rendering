@@ -1,0 +1,57 @@
+// VolumeTextureInitializer.compute
+
+#pragma kernel InitializeVolumeTexture
+
+RWTexture3D<float4> volumeTexture : register(u0);
+Texture2D<float4> depthMap : register(t0);
+uint3 volumeTextureSize;
+uint2 depthMapSize;
+
+uint viewIndex;
+
+float3 GetUVW(uint3 id, float depth)
+{
+    float3 uvw = float3(0, 0, 0);
+    
+    switch (viewIndex)
+    {
+        case 0: // NX
+            uvw = float3(1 - depth, id.y / depthMapSize.y, id.z / depthMapSize.x);
+            break;
+        case 1: // NY
+            uvw = float3(id.x / depthMapSize.x, 1 - depth, 1 - id.z / depthMapSize.y);
+            break;
+        case 2: // NZ
+            uvw = float3(id.x / depthMapSize.x, id.y / depthMapSize.y, 1 - depth);
+            break;
+        case 3: // PX
+            uvw = float3(depth, 1 - id.y / depthMapSize.y, id.z / depthMapSize.x);
+            break;
+        case 4: // PY
+            uvw = float3(1 - id.z / depthMapSize.y, depth, id.x / depthMapSize.x);
+            break;
+        case 5: // PZ
+            uvw = float3(id.x / depthMapSize.x, 1 - id.y / depthMapSize.y, depth);
+            break;
+    }
+    
+    return uvw;
+}
+
+[numthreads(8, 8, 8)]
+void InitializeVolumeTexture(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= volumeTextureSize.x || id.y >= volumeTextureSize.y || id.z >= volumeTextureSize.z)
+        return;
+
+    float4 pixelColor = depthMap.Load(uint3(id.z, id.y, 0));
+    float depth = 1 - pixelColor.a;
+    
+    float3 uvw = GetUVW(id, depth);
+    
+    if (uvw.x >= 0 && uvw.x <= 1 && uvw.y >= 0 && uvw.y <= 1 && uvw.z >= 0 && uvw.z <= 1)
+    {
+        volumeTexture[id] = float4(pixelColor.rgb, 1.0f);
+    }
+}
+
