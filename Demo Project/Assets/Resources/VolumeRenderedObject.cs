@@ -20,11 +20,21 @@ public class VolumeRenderedObject : MonoBehaviour
     {
         if (meshRenderer == null)
         {
-            Debug.LogError("MeshRenderer is not assigned.");
-            return;
+            Debug.LogWarning("MeshRenderer is not assigned in Awake. Will try to assign it later.");
+            // Optionally, you could try to find the MeshRenderer here:
+            // meshRenderer = GetComponentInChildren<MeshRenderer>();
         }
 
-        UpdateMaterialProperties();
+        if (dataset == null)
+        {
+            Debug.LogWarning(
+                "VolumeDataset is not assigned in Awake. Will try to assign it later."
+            );
+        }
+        else
+        {
+            UpdateMaterialProperties();
+        }
     }
 
     void OnValidate()
@@ -90,6 +100,15 @@ public class VolumeRenderedObject : MonoBehaviour
         if (meshRenderer != null)
         {
             meshRenderer.sharedMaterial.SetTexture("_MainTex", newTexture);
+        }
+    }
+
+    public void SetDataset(VolumeDataset newDataset)
+    {
+        dataset = newDataset;
+        if (dataset != null && meshRenderer != null)
+        {
+            UpdateMaterialProperties();
         }
     }
 }

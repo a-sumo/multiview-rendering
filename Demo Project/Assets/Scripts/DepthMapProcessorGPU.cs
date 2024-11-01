@@ -1,4 +1,5 @@
 using UnityEngine;
+using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
@@ -16,56 +17,47 @@ public class DepthMapProcessorGPU : MonoBehaviour
     public int currentFrameIndex = 1;
     public string texturePropertyName = "VolumeTexture";
     public float targetFPS = 60f;
+    public GameObject volumeContainerPrefab;
 
+    private VolumeRenderedObject volumeRenderer;
     private VolumeDataset dataset;
-    private NativeArray<Color> volumeData;
-    public VolumeRenderedObject volumeRenderer;
+    public NativeArray<Color> volumeData;
     private Texture2D[][] loadedTextures;
     private RenderTexture[] viewRenderTextures;
     private RenderTexture finalRenderTexture;
     private ComputeShader processComputeShader;
-    private ComputeShader combineComputeShader;
+    private ComputeBuffer[] viewBuffers;
+    private ComputeBuffer combinedBuffer;
+    private ComputeBuffer viewIndexBuffer;
     private ComputeShader clearComputeShader;
-    
-    private ComputeBuffer volumeBuffer;
+
     private float nextUpdateTime;
+
+    [System.Runtime.InteropServices.StructLayout(
+        System.Runtime.InteropServices.LayoutKind.Sequential
+    )]
+    public struct VoxelColorData
+    {
+        public Vector4 color;
+    }
+
+    [System.Runtime.InteropServices.StructLayout(
+        System.Runtime.InteropServices.LayoutKind.Sequential
+    )]
+    public struct VoxelIndexData
+    {
+        public uint viewIndex;
+    }
 
     private void Awake()
     {
-        if (string.IsNullOrEmpty(imageFolder))
+        if (volumeContainerPrefab == null)
         {
-            Debug.LogError("Image folder path is not set.");
+            Debug.LogError("VolumeContainer prefab is not assigned in the Inspector.");
             return;
         }
 
-        LoadFrameFiles();
-        if (frameFiles == null || frameFiles.Count == 0)
-        {
-            Debug.LogError("No frame files loaded.");
-            return;
-        }
-        clearComputeShader = Resources.Load<ComputeShader>("ClearVolumeBuffer");
-        if (clearComputeShader == null)
-        {
-            Debug.LogError("ClearVolumeBuffer compute shader not found in Resources folder.");
-        }
-        
-        LoadAllTextures();
-        InitializeRenderTextures();
-        CreateInitialVolumeBuffer();
-
-        if (volumeBuffer == null)
-        {
-            Debug.LogError("Failed to create volume buffer.");
-            return;
-        }
-
-        if (volumeRenderer == null)
-        {
-            Debug.LogError("VolumeRenderedObject is not assigned in the Inspector.");
-            return;
-        }
-
+        // Create and assign the VolumeDataset
         dataset = CreateVolumeDataset(TEXTURE_SIZE, TEXTURE_SIZE, TEXTURE_SIZE);
         if (dataset == null)
         {
@@ -73,11 +65,83 @@ public class DepthMapProcessorGPU : MonoBehaviour
             return;
         }
 
-        volumeRenderer.dataset = dataset;
+        // Create the initial volume texture
+        CreateInitialVolumeTexture();
+
+        // Load frame files and initialize buffers
+        LoadFrameFiles();
+        InitializeBuffers();
+
+        if (frameFiles == null || frameFiles.Count == 0)
+        {
+            Debug.LogError("No frame files loaded.");
+            return;
+        }
+
+        clearComputeShader = Resources.Load<ComputeShader>("ClearVolumeBuffer");
+        if (clearComputeShader == null)
+        {
+            Debug.LogError("ClearVolumeBuffer compute shader not found in Resources folder.");
+        }
+
+        LoadAllTextures();
+        InitializeRenderTextures();
+
+        // Instantiate and set up VolumeRenderedObject
+        SetupVolumeRenderedObject();
 
         UpdateVolumeTexture();
 
         nextUpdateTime = Time.time;
+    }
+
+    private void SetupVolumeRenderedObject()
+    {
+        // Instantiate VolumeRenderedObject
+        GameObject volumeObject = new GameObject("VolumeRenderedObject");
+
+        // Instantiate VolumeContainer prefab as a child of VolumeRenderedObject
+        GameObject volumeContainer = Instantiate(volumeContainerPrefab, volumeObject.transform);
+        volumeContainer.name = "VolumeContainer";
+
+        // Get the MeshRenderer component from the VolumeContainer
+        MeshRenderer containerMeshRenderer = volumeContainer.GetComponent<MeshRenderer>();
+        if (containerMeshRenderer == null)
+        {
+            Debug.LogError("No MeshRenderer found on VolumeContainer!");
+            return;
+        }
+
+        // Add VolumeRenderedObject component and set its properties
+        volumeRenderer = volumeObject.AddComponent<VolumeRenderedObject>();
+        volumeRenderer.meshRenderer = containerMeshRenderer;
+        volumeRenderer.volumeContainerObject = volumeContainer;
+
+        // Assign dataset and initial texture
+        volumeRenderer.SetDataset(dataset);
+        volumeRenderer.UpdateTexture(volumeTexture);
+    }
+
+    private void InitializeBuffers()
+    {
+        viewBuffers = new ComputeBuffer[6];
+        for (int i = 0; i < 6; i++)
+        {
+            viewBuffers[i] = new ComputeBuffer(
+                TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE,
+                System.Runtime.InteropServices.Marshal.SizeOf(typeof(VoxelColorData))
+            );
+        }
+
+        viewIndexBuffer = new ComputeBuffer(
+            TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE,
+            System.Runtime.InteropServices.Marshal.SizeOf(typeof(VoxelIndexData))
+        );
+
+        combinedBuffer = new ComputeBuffer(
+            TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE,
+            System.Runtime.InteropServices.Marshal.SizeOf(typeof(VoxelColorData))
+        );
     }
 
     void Update()
@@ -86,6 +150,11 @@ public class DepthMapProcessorGPU : MonoBehaviour
         {
             UpdateVolumeTexture();
             nextUpdateTime = Time.time + (1f / targetFPS);
+        }
+        // Ensure dataset is assigned
+        if (volumeRenderer != null && dataset != null)
+        {
+            volumeRenderer.dataset = dataset;
         }
     }
 
@@ -181,66 +250,45 @@ public class DepthMapProcessorGPU : MonoBehaviour
         );
 
         processComputeShader = Resources.Load<ComputeShader>("ProcessViewsComputeShader");
-        combineComputeShader = Resources.Load<ComputeShader>("CombineVoxelsComputeShader");
 
         if (processComputeShader == null)
         {
             Debug.LogError("ProcessViewsComputeShader not found in Resources folder.");
         }
-
-        if (combineComputeShader == null)
-        {
-            Debug.LogError("CombineVoxelsComputeShader not found in Resources folder.");
-        }
     }
 
     public void CreateInitialVolumeTexture()
     {
-        RenderTextureDescriptor descriptor = new RenderTextureDescriptor(
-            TEXTURE_SIZE,
-            TEXTURE_SIZE,
-            RenderTextureFormat.ARGBFloat,
-            0,
-            0,
-            RenderTextureReadWrite.Linear
-        );
-        descriptor.enableRandomWrite = true;
-        descriptor.volumeDepth = TEXTURE_SIZE;
-        descriptor.dimension = UnityEngine.Rendering.TextureDimension.Tex3D;
+        if (volumeTexture == null || volumeTexture.width != TEXTURE_SIZE)
+        {
+            volumeTexture = new Texture3D(
+                TEXTURE_SIZE,
+                TEXTURE_SIZE,
+                TEXTURE_SIZE,
+                TextureFormat.RGBAFloat,
+                false
+            );
+            volumeTexture.wrapMode = TextureWrapMode.Repeat;
+            volumeTexture.filterMode = FilterMode.Point;
+        }
 
-        RenderTexture renderTexture = new RenderTexture(descriptor);
-        renderTexture.Create();
-
-        volumeTexture = new Texture3D(
-            TEXTURE_SIZE,
-            TEXTURE_SIZE,
-            TEXTURE_SIZE,
-            TextureFormat.RGBAFloat,
-            false
-        );
-        volumeTexture.wrapMode = TextureWrapMode.Repeat;
-        volumeTexture.filterMode = FilterMode.Point;
-
+        // Initialize the texture with default values (e.g., black)
         volumeData = new NativeArray<Color>(
             TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE,
             Allocator.Persistent
         );
-        ProcessFrame(1);
-
-        // Instead of using Graphics.CopyTexture, we'll update the volumeTexture directly
+        for (int i = 0; i < volumeData.Length; i++)
+        {
+            volumeData[i] = Color.black;
+        }
         volumeTexture.SetPixelData(volumeData, 0);
         volumeTexture.Apply();
 
-        renderTexture.Release();
-    }
-
-    public void CreateInitialVolumeBuffer()
-    {
-        volumeBuffer = new ComputeBuffer(
-            TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE,
-            sizeof(float) * 4
-        );
-        ProcessFrame(1);
+        // Update the VolumeRenderedObject with the initial texture
+        if (volumeRenderer != null)
+        {
+            volumeRenderer.UpdateTexture(volumeTexture);
+        }
     }
 
     private VolumeDataset CreateVolumeDataset(int width, int height, int depth)
@@ -263,7 +311,7 @@ public class DepthMapProcessorGPU : MonoBehaviour
 
         ProcessFrame(currentFrameIndex);
 
-        // Create a new Texture3D from the buffer data
+        // Create a new Texture3D from the combined buffer data
         if (volumeTexture == null || volumeTexture.width != TEXTURE_SIZE)
         {
             volumeTexture = new Texture3D(
@@ -273,31 +321,87 @@ public class DepthMapProcessorGPU : MonoBehaviour
                 TextureFormat.RGBAFloat,
                 false
             );
+            volumeTexture.wrapMode = TextureWrapMode.Repeat;
+            volumeTexture.filterMode = FilterMode.Point;
         }
 
-        Color[] bufferData = new Color[TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE];
-        volumeBuffer.GetData(bufferData);
-        volumeTexture.SetPixelData(bufferData, 0);
-        volumeTexture.Apply();
+        if (combinedBuffer != null)
+        {
+            VoxelColorData[] bufferData = new VoxelColorData[
+                TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE
+            ];
+            combinedBuffer.GetData(bufferData);
 
-        volumeRenderer.UpdateTexture(volumeTexture);
+            Color[] combinedData = new Color[TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE];
+            for (int i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE; i++)
+            {
+                VoxelColorData voxel = bufferData[i];
+                combinedData[i] = new Color(
+                    voxel.color.x,
+                    voxel.color.y,
+                    1f,
+                    1f
+                );
+            }
+
+            volumeTexture.SetPixelData(combinedData, 0);
+            volumeTexture.Apply();
+        }
+        else
+        {
+            Debug.LogError("combinedBuffer is null");
+        }
+
+        if (volumeRenderer != null)
+        {
+            volumeRenderer.UpdateTexture(volumeTexture);
+        }
+        else 
+        {
+            Debug.LogError("volumeRenderer is null");
+        }
 
         UpdateDatasetData();
+    }
+
+    private void ClearBuffer(ComputeBuffer colorBuffer, ComputeBuffer indexBuffer)
+    {
+        int clearKernelIndex = clearComputeShader.FindKernel("CSMain");
+        clearComputeShader.SetBuffer(clearKernelIndex, "_CombinedBuffer", colorBuffer);
+        clearComputeShader.SetBuffer(clearKernelIndex, "_ViewIndexBuffer", indexBuffer);
+        clearComputeShader.SetInt("_BufferSize", TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE);
+        clearComputeShader.Dispatch(
+            clearKernelIndex,
+            (TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE + 255) / 256,
+            1,
+            1
+        );
     }
 
     private void UpdateDatasetData()
     {
         if (dataset != null)
         {
-            Color[] bufferData = new Color[TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE];
-            volumeBuffer.GetData(bufferData);
+            VoxelColorData[] colorBufferData = new VoxelColorData[
+                TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE
+            ];
+            combinedBuffer.GetData(colorBufferData);
 
-            for (int i = 0; i < bufferData.Length; i++)
+            VoxelIndexData[] indexBufferData = new VoxelIndexData[
+                TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE
+            ];
+            viewIndexBuffer.GetData(indexBufferData);
+
+            for (int i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE; i++)
             {
-                dataset.data[i] = bufferData[i].r; // Store red channel
-                dataset.data[i + bufferData.Length] = bufferData[i].g; // Store green channel
-                dataset.data[i + bufferData.Length * 2] = bufferData[i].b; // Store blue channel
-                dataset.data[i + bufferData.Length * 3] = bufferData[i].a; // Store alpha channel
+                VoxelColorData colorData = colorBufferData[i];
+                VoxelIndexData indexData = indexBufferData[i];
+
+                int baseIndex = i * 4;
+                dataset.data[baseIndex] = colorData.color.x;
+                dataset.data[baseIndex + 1] = colorData.color.y;
+                dataset.data[baseIndex + 2] = colorData.color.z;
+                dataset.data[baseIndex + 3] = colorData.color.w;
             }
             dataset.dataTexture = null; // Force recreation of the texture
         }
@@ -311,16 +415,11 @@ public class DepthMapProcessorGPU : MonoBehaviour
             return;
         }
 
-        // Clear the volume buffer
-        int clearKernelIndex = clearComputeShader.FindKernel("CSMain");
-        clearComputeShader.SetBuffer(clearKernelIndex, "_VolumeBuffer", volumeBuffer);
-        clearComputeShader.SetInt("_BufferSize", TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE);
-        clearComputeShader.Dispatch(
-            clearKernelIndex,
-            (TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE + 255) / 256,
-            1,
-            1
-        );
+        // Clear all view buffers
+        for (int i = 0; i < 6; i++)
+        {
+            ClearBuffer(viewBuffers[i], viewIndexBuffer);
+        }
 
         for (int viewIndex = 0; viewIndex < 6; viewIndex++)
         {
@@ -348,7 +447,7 @@ public class DepthMapProcessorGPU : MonoBehaviour
             }
         }
 
-        CombineVoxelsGPU();
+        CombineVoxelsCPU();
     }
 
     void ProcessView(Texture2D imageTexture, int viewIndex)
@@ -357,12 +456,12 @@ public class DepthMapProcessorGPU : MonoBehaviour
             imageTexture == null
             || viewRenderTextures == null
             || viewRenderTextures.Length <= viewIndex
-            || volumeBuffer == null
+            || viewBuffers[viewIndex] == null
             || processComputeShader == null
         )
         {
             Debug.LogError(
-                $"Invalid texture, render texture array, volume buffer, or compute shader for view {viewIndex}"
+                $"Invalid texture, render texture array, view buffer, or compute shader for view {viewIndex}"
             );
             return;
         }
@@ -383,39 +482,75 @@ public class DepthMapProcessorGPU : MonoBehaviour
             "_InputTexture",
             viewRenderTextures[viewIndex]
         );
-        processComputeShader.SetBuffer(kernelIndex, "_VolumeBuffer", volumeBuffer);
+        processComputeShader.SetBuffer(kernelIndex, "_VolumeBuffer", viewBuffers[viewIndex]);
         processComputeShader.SetInt("_BufferWidth", TEXTURE_SIZE);
         processComputeShader.SetInt("_BufferHeight", TEXTURE_SIZE);
         processComputeShader.SetInt("_BufferDepth", TEXTURE_SIZE);
+        processComputeShader.SetInt("_Padding", PADDING);
         processComputeShader.Dispatch(kernelIndex, TEXTURE_SIZE / 16, TEXTURE_SIZE / 16, 1);
     }
 
-    void CombineVoxelsGPU()
+    private void CombineVoxelsCPU()
     {
-        if (volumeBuffer == null)
+        if (combinedBuffer == null || viewIndexBuffer == null)
         {
-            Debug.LogError("Volume buffer is null");
+            Debug.LogError("Combined buffer or ViewIndex buffer is null");
             return;
         }
 
-        int kernelIndex = combineComputeShader.FindKernel("CSMain");
-        combineComputeShader.SetBuffer(kernelIndex, "_VolumeBuffer", volumeBuffer);
-        combineComputeShader.SetInt("_BufferWidth", TEXTURE_SIZE);
-        combineComputeShader.SetInt("_BufferHeight", TEXTURE_SIZE);
-        combineComputeShader.SetInt("_BufferDepth", TEXTURE_SIZE);
-        combineComputeShader.Dispatch(
-            kernelIndex,
-            TEXTURE_SIZE / 8,
-            TEXTURE_SIZE / 8,
-            TEXTURE_SIZE / 8
-        );
+        VoxelColorData[] combinedData = new VoxelColorData[
+            TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE
+        ];
+        VoxelIndexData[] viewIndexData = new VoxelIndexData[
+            TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE
+        ];
+
+        for (int i = 0; i < 6; i++)
+        {
+            VoxelIndexData[] viewBufferData = new VoxelIndexData[
+                TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE
+            ];
+            viewBuffers[i].GetData(viewBufferData);
+
+            for (int j = 0; j < TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE; j++)
+            {
+                if (viewBufferData[j].viewIndex > 0)
+                {
+                    combinedData[j].color += new Vector4(
+                        viewBufferData[j].viewIndex,
+                        viewBufferData[j].viewIndex,
+                        viewBufferData[j].viewIndex,
+                        viewBufferData[j].viewIndex
+                    );
+                    viewIndexData[j].viewIndex = (uint)
+                        Mathf.Max(viewIndexData[j].viewIndex, viewBufferData[j].viewIndex);
+                }
+            }
+        }
+
+        // Normalize colors
+        for (int i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE * TEXTURE_SIZE; i++)
+        {
+            if (combinedData[i].color.w > 0f)
+            {
+                combinedData[i].color = new Vector4(
+                    combinedData[i].color.x / combinedData[i].color.w,
+                    combinedData[i].color.y / combinedData[i].color.w,
+                    combinedData[i].color.z / combinedData[i].color.w,
+                    1f
+                );
+            }
+        }
+
+        combinedBuffer.SetData(combinedData);
+        viewIndexBuffer.SetData(viewIndexData);
     }
 
     void OnDisable()
     {
-        if (volumeBuffer != null)
+        if (combinedBuffer != null)
         {
-            volumeBuffer.Release();
+            combinedBuffer.Release();
         }
         if (volumeTexture != null)
         {
@@ -442,6 +577,21 @@ public class DepthMapProcessorGPU : MonoBehaviour
         {
             RenderTexture.active = null;
             finalRenderTexture.Release();
+        }
+        if (viewBuffers != null)
+        {
+            foreach (var buffer in viewBuffers)
+            {
+                if (buffer != null)
+                {
+                    buffer.Release();
+                }
+            }
+        }
+
+        if (viewIndexBuffer != null)
+        {
+            viewIndexBuffer.Release();
         }
     }
 }

@@ -1,34 +1,36 @@
 // using UnityEngine;
 // using UnityEditor;
+// using System.IO;
 
-// [CustomEditor(typeof(DepthMapProcessor))]
-// public class DepthMapProcessorEditor : Editor
+// [CustomEditor(typeof(DepthMapProcessorJob))]
+// public class DepthMapProcessorJobEditor : Editor
 // {
 //     public override void OnInspectorGUI()
 //     {
 //         base.OnInspectorGUI();
 
-//         DepthMapProcessor processor = (DepthMapProcessor)target;
+//         DepthMapProcessorJob processor = (DepthMapProcessorJob)target;
 
-//         if (GUILayout.Button("Process Current Frame and Create Initial Volume Texture"))
+//         GUILayout.Space(20);
+
+//         if (GUILayout.Button("Process and Save All Frames"))
 //         {
-//             processor.ProcessDepthMapsAndCreateInitialVolumeTexture();
+//             EditorUtility.DisplayProgressBar("Processing Frames", "Starting...", 0f);
+//             try
+//             {
+//                 processor.ProcessAndSaveAllFrames();
+//             }
+//             finally
+//             {
+//                 EditorUtility.ClearProgressBar();
+//             }
+//         }
 
-//             if (processor.frameFiles == null || processor.frameFiles.Count == 0)
-//             {
-//                 EditorGUILayout.HelpBox(
-//                     "No depth map files found. Please check the image folder path.",
-//                     MessageType.Warning
-//                 );
-//             }
-//             else
-//             {
-//                 EditorUtility.SetDirty(processor);
-//                 AssetDatabase.SaveAssets();
-//                 Debug.Log(
-//                     $"Initial volume texture created and processed for frame {processor.currentFrameIndex}."
-//                 );
-//             }
+//         GUILayout.Space(10);
+
+//         if (GUILayout.Button("Load Processed Frames"))
+//         {
+//             processor.LoadProcessedFrame(processor.currentFrameIndex);
 //         }
 //     }
 // }

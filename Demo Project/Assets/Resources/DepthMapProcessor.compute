@@ -1,0 +1,57 @@
+#pragma kernel ProcessView
+
+RWTexture3D<float4> outputTexture : register(u0);
+Texture2D<float4> inputTexture : register(t0);
+uint viewType : register(c0);
+float padding : register(c1);
+float textureSize : register(c2);
+
+[numthreads(16, 16, 1)]
+void ProcessView(uint3 id : SV_DispatchThreadID)
+{
+    uint x = id.x;
+    uint y = id.y;
+    
+    if (x >= padding && x < textureSize - padding &&
+        y >= padding && y < textureSize - padding)
+    {
+        float4 pixelColor = inputTexture.Load(float3(x, y, 0));
+        float depth = 1.0 - pixelColor.a;
+        
+        uint3 voxelCoord;
+        float4 voxelColor;
+        
+        switch (viewType)
+        {
+            case 0: // NX View
+                voxelCoord = uint3(textureSize - 1 - (uint)(depth * (textureSize - 1)), y, x);
+                voxelColor = float4(pixelColor.rgb, depth);
+                break;
+            case 1: // NY View
+                voxelCoord = uint3(y, textureSize - 1 - (uint)(depth * (textureSize - 1)), textureSize - 1 - x);
+                voxelColor = float4(pixelColor.rgb, depth);
+                break;
+            case 2: // NZ View
+                voxelCoord = uint3(x, y, (uint)(depth * (textureSize - 1)));
+                voxelColor = float4(pixelColor.rgb, depth);
+                break;
+            case 3: // PX View
+                voxelCoord = uint3((uint)(depth * (textureSize - 1)), textureSize - 1 - y, x);
+                voxelColor = float4(pixelColor.rgb, depth);
+                break;
+            case 4: // PY View
+                voxelCoord = uint3(textureSize - 1 - x, (uint)(depth * (textureSize - 1)), y);
+                voxelColor = float4(pixelColor.rgb, depth);
+                break;
+            case 5: // PZ View
+                voxelCoord = uint3(x, textureSize - 1 - y, textureSize - 1 - (uint)(depth * (textureSize - 1)));
+                voxelColor = float4(pixelColor.rgb, depth);
+                break;
+        }
+        
+        if (voxelCoord.x < textureSize && voxelCoord.y < textureSize && voxelCoord.z < textureSize)
+        {
+            outputTexture[voxelCoord] = voxelColor;
+        }
+    }
+}

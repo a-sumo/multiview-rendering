@@ -6,7 +6,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 
-public class DepthMapProcessorJob : MonoBehaviour
+public class DepthMapProcessor2 : MonoBehaviour
 {
     public string imageFolder = "Assets/Resources/DepthMaps/";
     private const int TEXTURE_SIZE = 128;
