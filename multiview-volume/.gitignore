@@ -1,0 +1,130 @@
+# Ignore operating system files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Ignore IDE and editor files
+.vscode/
+.idea/
+*.iml
+*.iws
+*.ipr
+*.classpath
+*.project
+.settings/
+
+# Ignore build outputs
+build/
+Debug/
+Release/
+x64/
+x86/
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+*.o
+*.dll.a
+*.exe~
+*.dll~
+*.so~
+*.dylib~
+go-build*
+
+# Ignore CMake files
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+
+# Ignore miscellaneous
+*.log
+*.tmp
+*.bak
+*.sw[klmnop]
+*~.nib
+local.properties
+.settings/
+.loadpath
+.externalToolBuilders/
+.mtj.tmp/
+
+# Ignore documentation files
+Doxyfile
+docs/html/
+
+# Ignore test files
+Test*.h
+Test*.cpp
+ITest*.h
+ITest*.cpp
+
+# Ignore Qt Creator files
+*.autosave
+*.moc
+*.mocxx
+*.qrc
+*.qrcxx
+*.qrcxx.cxx
+*.ui
+*.uic
+*.uicxx
+*.uicxx.h
+*.ts
+*.xml
+*.qmlproject
+*.pro.user
+*.pro.user.*
+*.pro.shared
+*.pri
+*.prl
+*.qbs.user
+*.qbs.user.*
+
+# Ignore Visual Studio temporary files
+*.userosscache
+*.suo
+*.userprefs
+*.vcxproj.filters
+*.vcxproj.user
+
+# Ignore macOS files
+.AppleDouble
+.LSOverride
+
+.Trash/
+
+# Ignore logs
+logs
+*.log
+
+# Ignore Runtime data
+pki/
+public_html/
+sites/
+
+# Ignore Node.js stuff
+node_modules/
+npm-debug.log
+
+# Ignore favicon.ico files
+favicon.ico
+
+# Ignore Apple stuff
+.AppleDouble
+.LSOverride
+
+.Trash/
+
+# Ignore Windows stuff
+Desktop.ini
+Thumbs.db
