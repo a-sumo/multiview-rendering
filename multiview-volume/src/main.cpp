@@ -9,6 +9,8 @@
 #include <sstream>
 #include <vector>
 #include <array>
+#include <openvdb/math/Transform.h>
+#include <openvdb/math/Mat4.h>
 
 struct VoxelData
 {
@@ -34,6 +36,8 @@ void processView(const std::string &filename, std::vector<VoxelData> &voxelDataL
         return;
     }
 
+    const float depthThreshold = 0.05f; // Define a threshold (e.g., 5% of textureSize)
+
     for (int y = 0; y < height; y++)
     {
         for (int z = 0; z < width; z++)
@@ -45,6 +49,12 @@ void processView(const std::string &filename, std::vector<VoxelData> &voxelDataL
 
             float depth = 1.0f - a;
             int x = static_cast<int>(std::round(depth * (textureSize - 1)));
+
+            // Check if depth is close to zero or textureSize
+            if (depth < depthThreshold || depth > (1.0f - depthThreshold))
+            {
+                continue; // Skip this pixel if it's too close to the edges
+            }
 
             VoxelData voxel;
             voxel.color = openvdb::Vec3f(r, g, b);
@@ -121,6 +131,7 @@ void combineVoxels(openvdb::Vec3fGrid::Ptr rgbGrid, openvdb::FloatGrid::Ptr alph
             }
         }
     }
+
 }
 
 int main()
@@ -178,6 +189,16 @@ int main()
         // Combine voxel data
         combineVoxels(rgbGrid, alphaGrid, voxelDataList, textureSize);
 
+
+        // Apply rotation using OpenVDB's Transform
+        openvdb::math::Transform::Ptr transform = rgbGrid->transformPtr();
+        transform->postRotate(M_PI / 2, openvdb::math::X_AXIS); // Rotate 90 degrees around X-axis
+        rgbGrid->setTransform(transform);
+
+        transform = alphaGrid->transformPtr();
+        transform->postRotate(M_PI / 2, openvdb::math::X_AXIS); // Rotate 90 degrees around X-axis
+        alphaGrid->setTransform(transform);
+        
         // Save the OpenVDB grids
         std::ostringstream vdbOss;
         vdbOss << "output_" << std::setw(4) << std::setfill('0') << frame << ".vdb";
