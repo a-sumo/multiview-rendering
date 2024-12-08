@@ -1,7 +1,19 @@
+/**
+ * @file main.cpp
+ * @brief Multi-view depth map processor that converts multiple view images into volumetric data
+ * @author a-sumo
+ * @date 12-09-2024
+ *
+ * This program processes depth maps from six different views (nx, ny, nz, px, py, pz)
+ * and combines them into a single volumetric dataset using OpenVDB.
+ */
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
 #include <openvdb/openvdb.h>
+#include <openvdb/math/Transform.h>
+#include <openvdb/math/Mat4.h>
 #include <iostream>
 #include <cmath>
 #include <string>
@@ -9,24 +21,113 @@
 #include <sstream>
 #include <vector>
 #include <array>
-#include <openvdb/math/Transform.h>
-#include <openvdb/math/Mat4.h>
+#include <filesystem>
+#include <cstring>
 
+/**
+ * @struct VoxelData
+ * @brief Represents a single voxel's position and color data
+ */
 struct VoxelData
 {
-    int x, y, z;
-    openvdb::Vec3f color;
-    float alpha;
+    int x, y, z;          ///< Grid coordinates
+    openvdb::Vec3f color; ///< RGB color values
+    float alpha;          ///< Alpha/transparency value
 };
+
 /**
- * Process a view image and map texture coordinates (u, v, w) to grid index coordinates (i, j, k).
- * 
- * Assumptions:
- * - Views nx, px, nz, pz have up vector +y
- * - Views ny, py have up vector +x
+ * @struct ProgramOptions
+ * @brief Configuration options for the program
  */
-void processView(const std::string &filename, std::vector<VoxelData> &voxelDataList, int viewIndex, int textureSize)
+struct ProgramOptions
 {
+    int startFrame = 1;
+    int endFrame = 25;
+    std::string baseDir = "../textures/viewdepthmaps/";
+    std::string outputDir = "../output/";
+    std::string outputPrefix = "volume";
+    int textureSize = 128;
+    bool verbose = false;
+};
+
+/**
+ * @brief Parses command line arguments into program options
+ * @param argc Argument count
+ * @param argv Argument values
+ * @return ProgramOptions structure with parsed values
+ */
+ProgramOptions parseCommandLine(int argc, char *argv[])
+{
+    ProgramOptions options;
+
+    for (int i = 1; i < argc; i++)
+    {
+        if (strcmp(argv[i], "--start") == 0 && i + 1 < argc)
+        {
+            options.startFrame = std::stoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--end") == 0 && i + 1 < argc)
+        {
+            options.endFrame = std::stoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--dir") == 0 && i + 1 < argc)
+        {
+            options.baseDir = argv[++i];
+        }
+        else if (strcmp(argv[i], "--outdir") == 0 && i + 1 < argc)
+        {
+            options.outputDir = argv[++i];
+        }
+        else if (strcmp(argv[i], "--prefix") == 0 && i + 1 < argc)
+        {
+            options.outputPrefix = argv[++i];
+        }
+        else if (strcmp(argv[i], "--size") == 0 && i + 1 < argc)
+        {
+            options.textureSize = std::stoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--verbose") == 0)
+        {
+            options.verbose = true;
+        }
+        else if (strcmp(argv[i], "--help") == 0)
+        {
+            std::cout << "Usage: " << argv[0] << " [options]\n"
+                      << "Options:\n"
+                      << "  --start N        Start frame number (default: 1)\n"
+                      << "  --end N          End frame number (default: 25)\n"
+                      << "  --dir path       Base directory for textures\n"
+                      << "  --outdir path    Output directory for VDB files\n"
+                      << "  --prefix name    Prefix for output files (default: volume)\n"
+                      << "  --size N         Texture size (default: 128)\n"
+                      << "  --verbose        Enable verbose output\n"
+                      << "  --help           Show this help message\n";
+            exit(0);
+        }
+    }
+
+    return options;
+}
+
+/**
+ * @brief Process a view image and map texture coordinates to grid index coordinates
+ * @param filename Path to the image file
+ * @param voxelDataList Vector to store the processed voxel data
+ * @param viewIndex Index indicating the view direction (0-5)
+ * @param textureSize Size of the texture (assumed square)
+ * @param verbose Enable verbose logging
+ */
+void processView(const std::string &filename,
+                 std::vector<VoxelData> &voxelDataList,
+                 int viewIndex,
+                 int textureSize,
+                 bool verbose)
+{
+    if (verbose)
+    {
+        std::cout << "Processing view: " << filename << std::endl;
+    }
+
     int width, height, channels;
     unsigned char *img = stbi_load(filename.c_str(), &width, &height, &channels, 0);
 
@@ -36,7 +137,17 @@ void processView(const std::string &filename, std::vector<VoxelData> &voxelDataL
         return;
     }
 
-    const float depthThreshold = 0.05f; // Define a threshold (e.g., 5% of textureSize)
+    if (verbose)
+    {
+        std::cout << "Image loaded successfully: "
+                  << width << "x" << height
+                  << " with " << channels << " channels" << std::endl;
+    }
+
+    const float depthThreshold = 0.05f;
+
+    int processedVoxels = 0;
+    int skippedVoxels = 0;
 
     for (int y = 0; y < height; y++)
     {
@@ -50,10 +161,10 @@ void processView(const std::string &filename, std::vector<VoxelData> &voxelDataL
             float depth = 1.0f - a;
             int x = static_cast<int>(std::round(depth * (textureSize - 1)));
 
-            // Check if depth is close to zero or textureSize
             if (depth < depthThreshold || depth > (1.0f - depthThreshold))
             {
-                continue; // Skip this pixel if it's too close to the edges
+                skippedVoxels++;
+                continue;
             }
 
             VoxelData voxel;
@@ -96,7 +207,15 @@ void processView(const std::string &filename, std::vector<VoxelData> &voxelDataL
             }
 
             voxelDataList.push_back(voxel);
+            processedVoxels++;
         }
+    }
+
+    if (verbose)
+    {
+        std::cout << "View processing complete: " << std::endl
+                  << "  - Processed voxels: " << processedVoxels << std::endl
+                  << "  - Skipped voxels: " << skippedVoxels << std::endl;
     }
 
     stbi_image_free(img);
@@ -131,80 +250,96 @@ void combineVoxels(openvdb::Vec3fGrid::Ptr rgbGrid, openvdb::FloatGrid::Ptr alph
             }
         }
     }
-
 }
 
-int main()
+/**
+ * @brief Main program entry point
+ */
+int main(int argc, char *argv[])
 {
+    // Initialize OpenVDB
     openvdb::initialize();
 
-    const int startFrame = 1;
-    const int endFrame = 25;
-    const std::string baseDir = "../textures/viewdepthmaps/";
-    const int textureSize = 128; // Adjust this to match your texture size
+    // Parse command line arguments
+    ProgramOptions options = parseCommandLine(argc, argv);
 
-    for (int frame = startFrame; frame <= endFrame; ++frame)
+    // Validate input directory
+    if (!std::filesystem::exists(options.baseDir))
     {
-        std::vector<VoxelData> voxelDataList;
+        std::cerr << "Error: Input directory does not exist: " << options.baseDir << std::endl;
+        return 1;
+    }
 
-        for (int viewIndex = 0; viewIndex < 6; ++viewIndex)
+    // Process frames
+    for (int frame = options.startFrame; frame <= options.endFrame; ++frame)
+    {
+        if (options.verbose)
         {
-            std::string viewSuffix;
-            switch (viewIndex)
-            {
-            case 0:
-                viewSuffix = "nx.png";
-                break;
-            case 1:
-                viewSuffix = "ny.png";
-                break;
-            case 2:
-                viewSuffix = "nz.png";
-                break;
-            case 3:
-                viewSuffix = "px.png";
-                break;
-            case 4:
-                viewSuffix = "py.png";
-                break;
-            case 5:
-                viewSuffix = "pz.png";
-                break;
-            }
-
-            std::ostringstream oss;
-            oss << baseDir << std::setw(4) << std::setfill('0') << frame << viewSuffix;
-            std::string filename = oss.str();
-
-            processView(filename, voxelDataList, viewIndex, textureSize);
+            std::cout << "Processing frame " << frame << "..." << std::endl;
         }
 
-        // Create OpenVDB grids
-        openvdb::Vec3fGrid::Ptr rgbGrid = openvdb::Vec3fGrid::create();
+        std::vector<VoxelData> voxelDataList;
+
+        // Process all six views
+        const std::array<std::string, 6> viewSuffixes = {
+            "nx.png", "ny.png", "nz.png", "px.png", "py.png", "pz.png"};
+
+        for (int viewIndex = 0; viewIndex < viewSuffixes.size(); ++viewIndex)
+        {
+            std::ostringstream oss;
+            oss << options.baseDir << std::setw(4) << std::setfill('0')
+                << frame << viewSuffixes[viewIndex];
+            std::string filename = oss.str();
+
+            processView(filename, voxelDataList, viewIndex,
+                        options.textureSize, options.verbose);
+        }
+
+        // Create and initialize OpenVDB grids
+        auto rgbGrid = openvdb::Vec3fGrid::create();
         rgbGrid->setName("RGB");
 
-        openvdb::FloatGrid::Ptr alphaGrid = openvdb::FloatGrid::create();
+        auto alphaGrid = openvdb::FloatGrid::create();
         alphaGrid->setName("Alpha");
 
-        // Combine voxel data
-        combineVoxels(rgbGrid, alphaGrid, voxelDataList, textureSize);
+        // Process voxel data
+        combineVoxels(rgbGrid, alphaGrid, voxelDataList, options.textureSize);
 
-
-        // Apply rotation using OpenVDB's Transform
-        openvdb::math::Transform::Ptr transform = rgbGrid->transformPtr();
-        transform->postRotate(M_PI / 2, openvdb::math::X_AXIS); // Rotate 90 degrees around X-axis
+        // Apply transformations
+        auto transform = rgbGrid->transformPtr();
+        transform->postRotate(M_PI / 2, openvdb::math::X_AXIS);
         rgbGrid->setTransform(transform);
 
         transform = alphaGrid->transformPtr();
-        transform->postRotate(M_PI / 2, openvdb::math::X_AXIS); // Rotate 90 degrees around X-axis
+        transform->postRotate(M_PI / 2, openvdb::math::X_AXIS);
         alphaGrid->setTransform(transform);
-        
-        // Save the OpenVDB grids
-        std::ostringstream vdbOss;
-        vdbOss << "output_" << std::setw(4) << std::setfill('0') << frame << ".vdb";
-        openvdb::io::File(vdbOss.str()).write({rgbGrid, alphaGrid});
 
-        std::cout << "Processed frame " << frame << " and saved as " << vdbOss.str() << std::endl;
+        // Save output
+        std::ostringstream vdbOss;
+        vdbOss << options.outputDir << "/"
+               << options.outputPrefix << "_"
+               << std::setw(4) << std::setfill('0') << frame << ".vdb";
+        std::string outputPath = vdbOss.str();
+
+        // Check if file exists
+        if (std::filesystem::exists(outputPath) && options.verbose)
+        {
+            std::cout << "Overwriting existing file: " << outputPath << std::endl;
+        }
+
+        // Save the file 
+        openvdb::io::File file(outputPath);
+        file.write({rgbGrid, alphaGrid});
+
+        if (options.verbose)
+        {
+            std::cout << "Saved " << outputPath << std::endl;
+        }
+
+        if (options.verbose)
+        {
+            std::cout << "Saved " << vdbOss.str() << std::endl;
+        }
     }
 
     return 0;
