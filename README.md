@@ -22,7 +22,7 @@ apt-get install -y libboost-iostreams-dev libtbb-dev libblosc-dev libopenvdb-dev
 #### macOS
 brew install openvdb
 
-## Project Structure
+## C++ Project Structure
 
  ```
 ├── CMakeLists.txt          # CMake configuration
@@ -38,7 +38,7 @@ brew install openvdb
 1. Clone the repository:
  ```
 git clone https://github.com/a-sumo/multiview-rendering
-cd multiview-volume
+cd cpp
  ```
 
 2. Use the provided build script:
@@ -129,5 +129,5 @@ Note: For better performance, you may need to:
 
 ## License
 
-MIT
+MIT License
 
