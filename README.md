@@ -50,7 +50,7 @@ chmod +x build_and_run.sh
 
 ### Command Line Arguments
 
-./multiview-volume [options]
+./cpp [options]
 Options:
   --start N     Start frame number (default: 1)
   --end N       End frame number (default: 25)

@@ -8,7 +8,7 @@ make -j$(nproc)
 
 if [ $? -eq 0 ]; then
     echo "Build successful! Running the program..."
-    ./multiview-volume "$@"
+    ./cpp "$@"
 else
     echo "Build failed!"
     exit 1
