@@ -82,10 +82,11 @@ View directions:
 
 ## Output
 
+![side_by_side_1](https://github.com/user-attachments/assets/9e4100e8-bbe2-4dfa-85be-ce8bd36ff244)
+
 The program generates OpenVDB files named output_XXXX.vdb where XXXX is the frame number. These files contain:
 - RGB color information
 - Alpha channel data
-- Transformed volumetric representation
 
 ## Using the VDB Files in Blender
 
