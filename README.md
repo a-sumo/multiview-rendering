@@ -1,4 +1,5 @@
 # Multiview Rendering
+<img width="652" alt="side_by_side_blebder" src="https://github.com/user-attachments/assets/b98769a4-2a23-4b62-8233-1e4ffd7ebdac">
 
 A C++ project for processing and rendering multi-view depth maps using OpenVDB.
 
