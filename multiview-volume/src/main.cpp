@@ -42,11 +42,11 @@ struct VoxelData
 struct ProgramOptions
 {
     int startFrame = 1;
-    int endFrame = 25;
+    int endFrame = 40;
     std::string baseDir = "../textures/viewdepthmaps/";
     std::string outputDir = "../output/";
     std::string outputPrefix = "volume";
-    int textureSize = 128;
+    int textureSize = 256;
     bool verbose = false;
 };
 
